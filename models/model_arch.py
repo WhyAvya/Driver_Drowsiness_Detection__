@@ -5,29 +5,30 @@ from torchvision import models
 
 class EyeStateCNN(nn.Module):
     """
-    MobileNetV2-based eye state classifier (OPEN / CLOSED)
+    MobileNetV2 based eye-state classifier.
 
     Input:  (B, 3, 224, 224)
-    Output: (B, 2)  [logits]
+    Output: (B, 2) logits
     """
 
     def __init__(self, freeze_backbone=True):
         super(EyeStateCNN, self).__init__()
 
-        # ---- Load pretrained MobileNetV2 ----
+        # Load pretrained MobileNetV2
         self.backbone = models.mobilenet_v2(weights="IMAGENET1K_V1")
 
+        # Freeze early layers
         if freeze_backbone:
-            for param in self.backbone.features.parameters():
+            for param in self.backbone.features[:-4].parameters():
                 param.requires_grad = False
 
-        # ---- Replace classifier head ----
+        # Replace classifier (MATCHES TRAINED MODEL)
         in_features = self.backbone.classifier[1].in_features
 
         self.backbone.classifier = nn.Sequential(
-            nn.Dropout(p=0.4),
-            nn.Linear(in_features, 2)  # OPEN / CLOSED
+            nn.Dropout(0.4),
+            nn.Linear(in_features, 2)
         )
 
     def forward(self, x):
-        return self.backbone(x)  # logits
+        return self.backbone(x)

@@ -1,20 +1,68 @@
-# Virtual environment
+# ==============================
+# 🔹 Virtual Environment
+# ==============================
 venv/
+env/
+ENV/
 
-# Python cache
+# ==============================
+# 🔹 Python Cache
+# ==============================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Model weights
-*.pth
-
-# Dataset folders (don’t upload raw data)
-data/dataset/train/
-data/dataset/test/
-data/dataset/val/
-
-# Audio files
-*.wav
-
-# Environment variables
+# ==============================
+# 🔹 Environment Variables (SENSITIVE)
+# ==============================
 .env
+.env.*
+
+# ==============================
+# 🔹 Model Files (DO NOT PUSH)
+# ==============================
+*.pth
+*.pt
+*.h5
+*.ckpt
+
+# ==============================
+# 🔹 Datasets (HEAVY FILES)
+# ==============================
+data/
+datasets/
+
+# ==============================
+# 🔹 Assets (optional - images/videos)
+# ==============================
+assets/
+
+# ==============================
+# 🔹 Logs
+# ==============================
+logs/
+*.log
+
+# ==============================
+# 🔹 Jupyter Notebook
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# 🔹 IDE / Editor Files
+# ==============================
+.vscode/
+.idea/
+
+# ==============================
+# 🔹 OS Files
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# 🔹 Temporary / Misc
+# ==============================
+*.tmp
+*.temp

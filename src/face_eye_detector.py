@@ -31,9 +31,10 @@ if eye_cascade.empty():
 
 
 # ============================================================
-# Layer 2.5: Face + Eye Detection (Visual Debug)
+# Face + Eye Detection (Improved)
 # ============================================================
 def detect_face_and_eyes(frame, draw=False):
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.equalizeHist(gray)
 
@@ -43,7 +44,7 @@ def detect_face_and_eyes(frame, draw=False):
     faces = face_cascade.detectMultiScale(
         gray,
         scaleFactor=1.1,
-        minNeighbors=3,
+        minNeighbors=5,
         minSize=(60, 60)
     )
 
@@ -54,23 +55,24 @@ def detect_face_and_eyes(frame, draw=False):
     x, y, w, h = max(faces, key=lambda b: b[2] * b[3])
 
     # -------------------------------
-    # Restrict to upper half of face
+    # Use upper 60% of face (IMPORTANT)
     # -------------------------------
-    face_gray = gray[y:y + h // 2, x:x + w]
-    face_color = frame[y:y + h // 2, x:x + w]
+    roi_h = int(h * 0.6)
+
+    face_gray = gray[y:y + roi_h, x:x + w]
+    face_color = frame[y:y + roi_h, x:x + w]
 
     # -------------------------------
-    # Detect eyes inside face ROI
+    # Detect eyes
     # -------------------------------
     eyes = eye_cascade.detectMultiScale(
-    face_gray,
-    scaleFactor=1.05,
-    minNeighbors=2,
-    minSize=(15, 15)
+        face_gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(20, 20)
     )
 
     print("Eyes detected:", len(eyes))
-
 
     # Sort left → right
     eyes = sorted(eyes, key=lambda e: e[0])
@@ -78,18 +80,40 @@ def detect_face_and_eyes(frame, draw=False):
     left_eye = None
     right_eye = None
 
-    if len(eyes) >= 2:
-        ex, ey, ew, eh = eyes[0]
-        left_eye = face_color[ey:ey + eh, ex:ex + ew]
+    pad = 6  # 👈 important for closed eyes
 
+    # -------------------------------
+    # Extract LEFT eye (if exists)
+    # -------------------------------
+    if len(eyes) >= 1:
+        ex, ey, ew, eh = eyes[0]
+
+        x1 = max(0, ex - pad)
+        y1 = max(0, ey - pad)
+        x2 = min(face_color.shape[1], ex + ew + pad)
+        y2 = min(face_color.shape[0], ey + eh + pad)
+
+        left_eye = face_color[y1:y2, x1:x2]
+
+    # -------------------------------
+    # Extract RIGHT eye (if exists)
+    # -------------------------------
+    if len(eyes) >= 2:
         ex, ey, ew, eh = eyes[1]
-        right_eye = face_color[ey:ey + eh, ex:ex + ew]
+
+        x1 = max(0, ex - pad)
+        y1 = max(0, ey - pad)
+        x2 = min(face_color.shape[1], ex + ew + pad)
+        y2 = min(face_color.shape[0], ey + eh + pad)
+
+        right_eye = face_color[y1:y2, x1:x2]
 
     # -------------------------------
     # Draw debug boxes
     # -------------------------------
     if draw:
-        # Face box (green)
+
+        # Face box
         cv2.rectangle(
             frame,
             (x, y),
@@ -98,7 +122,7 @@ def detect_face_and_eyes(frame, draw=False):
             2
         )
 
-        # Eye boxes (blue)
+        # Eye boxes
         for (ex, ey, ew, eh) in eyes[:2]:
             cv2.rectangle(
                 frame,
@@ -109,4 +133,3 @@ def detect_face_and_eyes(frame, draw=False):
             )
 
     return (x, y, w, h), left_eye, right_eye, frame
-

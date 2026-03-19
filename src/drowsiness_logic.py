@@ -1,20 +1,14 @@
-# src/drowsiness_logic.py
-
 class DrowsinessDetector:
+
     def __init__(self, frame_threshold=30):
-        """
-        frame_threshold:
-            Number of consecutive CLOSED-eye frames
-            required to declare drowsiness
-        """
+
         self.frame_threshold = frame_threshold
         self.closed_counter = 0
         self.drowsy = False
 
+
     def update(self, left_closed, right_closed):
         """
-        Update drowsiness state for the current frame.
-
         Inputs:
             left_closed  : True / False / None
             right_closed : True / False / None
@@ -23,21 +17,44 @@ class DrowsinessDetector:
             drowsy (bool)
         """
 
-        # If eyes are not reliably detected, reset
-        if left_closed is None or right_closed is None:
-            self.closed_counter = 0
-            self.drowsy = False
+        # -------------------------------
+        # Case 1: Both eyes missing → ignore frame
+        # -------------------------------
+        if left_closed is None and right_closed is None:
             return self.drowsy
 
-        # Both eyes closed → increment counter
-        if left_closed and right_closed:
+        # -------------------------------
+        # Case 2: Determine closed state
+        # -------------------------------
+
+        closed_score = 0
+
+        if left_closed is True:
+            closed_score += 1
+
+        if right_closed is True:
+            closed_score += 1
+
+        # -------------------------------
+        # Case 3: Update counter
+        # -------------------------------
+
+        # Both eyes closed → strong signal
+        if closed_score == 2:
             self.closed_counter += 1
+
+        # One eye closed → weak signal (still count)
+        elif closed_score == 1:
+            self.closed_counter += 0.5
+
+        # Eyes open → reset
         else:
-            # Any eye open → reset
             self.closed_counter = 0
             self.drowsy = False
 
-        # Check threshold
+        # -------------------------------
+        # Case 4: Check threshold
+        # -------------------------------
         if self.closed_counter >= self.frame_threshold:
             self.drowsy = True
 
