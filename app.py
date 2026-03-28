@@ -1,116 +1,135 @@
 import cv2
+import time
+
 from src.camera import Camera
-from src.face_eye_detector import detect_face_and_eyes
-from src.preprocess import preprocess_eye
+from src.mediapipe_eye_detector import MediaPipeEyeDetector
 from src.inference import EyeStateInference
-from src.drowsiness_logic import DrowsinessDetector
+from src.drowsiness_logic import DrowsinessLogic
 from src.alarm import Alarm
 
 
-def run():
+MODEL_PATH = "models/best_eye_state_effnet.pth"
+ALARM_SOUND = "assets/alarm.wav"
 
-    cam = Camera(0)
 
-    engine = EyeStateInference(
-    model_path="eye_state_mobilenet.pth",
-    device=None
+def draw_text(frame, text, x, y, scale=0.7, color=(0, 255, 0), thickness=2):
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        thickness,
+        cv2.LINE_AA,
     )
 
-    # ---- Drowsiness + Alarm ----
-    drowsiness_detector = DrowsinessDetector(frame_threshold=30)
-    alarm = Alarm("assets/alarm.wav")
 
-    # ---- Memory for eye tracking ----
-    prev_left_eye = None
-    prev_right_eye = None
+def run():
+    cam = Camera(index=0, width=1280, height=720)
+    detector = MediaPipeEyeDetector()
+    inference = EyeStateInference(model_path=MODEL_PATH)
+    logic = DrowsinessLogic(
+        closed_on_threshold=0.65,
+        open_off_threshold=0.40,
+        frame_threshold=15,
+        window_size=8,
+        ear_threshold=0.23,
+        ear_weight=0.10,
+    )
+    alarm = Alarm(sound_path=ALARM_SOUND)
+
+    prev_time = time.time()
+    fps = 0.0
 
     try:
         while True:
+            ret, frame = cam.read()
+            if not ret or frame is None:
+                continue
 
-            # ---- Capture frame ----
-            frame = cam.get_frame()
+            eye_data = detector.get_eye_data(frame)
 
-            # ---- Detection ----
-            face_box, left_eye, right_eye, debug = detect_face_and_eyes(
-                frame, draw=True
-            )
+            if eye_data is None:
+                logic.reset()
+                alarm.stop()
+                draw_text(frame, "No face detected", 30, 40, scale=1.0, color=(0, 0, 255))
+                cv2.imshow("Drowsiness Detection", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                continue
 
-            cv2.imshow("Main Camera", debug)
+            left_result = inference.predict(eye_data["left_crop"])
+            right_result = inference.predict(eye_data["right_crop"])
 
-            # =====================================================
-            # 🔥 REUSE LAST EYES (CRITICAL FIX)
-            # =====================================================
-            if left_eye is None:
-                left_eye = prev_left_eye
-            else:
-                prev_left_eye = left_eye
+            result = logic.update(left_result, right_result, ear=eye_data["ear"])
 
-            if right_eye is None:
-                right_eye = prev_right_eye
-            else:
-                prev_right_eye = right_eye
-
-            # =====================================================
-            # LEFT EYE
-            # =====================================================
-            if left_eye is not None:
-
-                cv2.imshow("Left Eye", left_eye)
-
-                eye_tensor = preprocess_eye(left_eye)
-
-                if eye_tensor is not None:
-                    label, confidence = engine.predict(eye_tensor)
-                    left_closed = (label == 0) if label is not None else None
-
-                    print(f"Left Eye: {label} ({confidence:.2f})")
-                else:
-                    left_closed = None
-
-            else:
-                left_closed = None
-                cv2.imshow("Left Eye", frame)  # fallback
-
-
-            # =====================================================
-            # RIGHT EYE
-            # =====================================================
-            if right_eye is not None:
-
-                cv2.imshow("Right Eye", right_eye)
-
-                eye_tensor = preprocess_eye(right_eye)
-
-                if eye_tensor is not None:
-                    label, confidence = engine.predict(eye_tensor)
-                    right_closed = (label == 0) if label is not None else None
-
-                    print(f"Right Eye: {label} ({confidence:.2f})")
-                else:
-                    right_closed = None
-
-            else:
-                right_closed = None
-                cv2.imshow("Right Eye", frame)  # fallback
-
-
-            # =====================================================
-            # DROWSINESS LOGIC
-            # =====================================================
-            is_drowsy = drowsiness_detector.update(left_closed, right_closed)
-
-            if is_drowsy:
-                print("🚨 DROWSINESS DETECTED 🚨")
+            if result["is_drowsy"]:
                 alarm.start()
+                status_color = (0, 0, 255)
+                status_text = "DROWSY"
             else:
                 alarm.stop()
+                status_color = (0, 255, 0)
+                status_text = "AWAKE"
 
+            # Draw eye bounding boxes
+            if eye_data["left_bbox"] is not None:
+                x1, y1, x2, y2 = eye_data["left_bbox"]
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), 2)
 
-            # ---- Exit ----
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if eye_data["right_bbox"] is not None:
+                x1, y1, x2, y2 = eye_data["right_bbox"]
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), 2)
+
+            # Draw labels
+            if left_result is not None:
+                draw_text(
+                    frame,
+                    f"Left:  {left_result['pred_label']}  {left_result['confidence']:.2f}",
+                    30,
+                    40,
+                    color=(255, 255, 0),
+                )
+            else:
+                draw_text(frame, "Left:  None", 30, 40, color=(0, 0, 255))
+
+            if right_result is not None:
+                draw_text(
+                    frame,
+                    f"Right: {right_result['pred_label']}  {right_result['confidence']:.2f}",
+                    30,
+                    75,
+                    color=(255, 255, 0),
+                )
+            else:
+                draw_text(frame, "Right: None", 30, 75, color=(0, 0, 255))
+
+            draw_text(frame, f"EAR: {eye_data['ear']:.3f}", 30, 110, color=(0, 255, 255))
+            draw_text(frame, f"Score: {result['score']:.3f}", 30, 145, color=(0, 255, 255))
+            draw_text(frame, f"Counter: {result['counter']}/{logic.frame_threshold}", 30, 180, color=(0, 255, 255))
+            draw_text(frame, f"Status: {status_text}", 30, 220, scale=1.0, color=status_color)
+
+            # FPS
+            now = time.time()
+            dt = now - prev_time
+            prev_time = now
+            if dt > 0:
+                fps = 0.9 * fps + 0.1 * (1.0 / dt)
+            draw_text(frame, f"FPS: {fps:.1f}", 30, 255, color=(200, 200, 200))
+
+            draw_text(frame, "Press Q to quit", 30, 290, color=(180, 180, 180))
+
+            cv2.imshow("Drowsiness Detection", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
     finally:
         alarm.stop()
         cam.release()
         cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    run()

@@ -1,99 +1,51 @@
+import numpy as np
 import torch
-import torch.nn.functional as F
-from models.model_arch import EyeStateCNN
-import os
+
+from models.model_arch import EyeStateEfficientNet
+from src.preprocess import preprocess_eye
 
 
 class EyeStateInference:
+    def __init__(self, model_path: str = "models/best_eye_state_effnet.pth"):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def __init__(self, model_path="models/eye_state_mobilenet.pth", device=None):
-        """
-        model_path: path to .pth file
-        device: 'cpu' or 'cuda'
-        """
+        checkpoint = torch.load(model_path, map_location=self.device)
 
-        # -------------------------------
-        # Device setup
-        # -------------------------------
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        self.device = device
-
-        print("Running on device:", self.device)
-
-        # -------------------------------
-        # Load model
-        # -------------------------------
-        self.model = EyeStateCNN().to(self.device)
-
-        if os.path.exists(model_path):
-
-            state_dict = torch.load(
-                model_path,
-                map_location=self.device
-            )
-
-            self.model.load_state_dict(state_dict)
-
-            print("✅ Loaded trained CNN weights")
-
+        # If checkpoint is a dict with metadata, load it properly.
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            self.class_to_idx = checkpoint.get("class_to_idx", {"closed": 0, "open": 1})
+            self.idx_to_class = checkpoint.get("idx_to_class", {0: "closed", 1: "open"})
+            model_state = checkpoint["model_state_dict"]
         else:
-            print("⚠️ Model weights not found → using random weights")
+            self.class_to_idx = {"closed": 0, "open": 1}
+            self.idx_to_class = {0: "closed", 1: "open"}
+            model_state = checkpoint
 
+        self.closed_index = self.class_to_idx.get("closed", 0)
+        self.open_index = self.class_to_idx.get("open", 1)
+
+        self.model = EyeStateEfficientNet(num_classes=2, pretrained=False).to(self.device)
+        self.model.load_state_dict(model_state)
         self.model.eval()
 
-        # -------------------------------
-        # Confidence thresholds
-        # -------------------------------
-        self.min_confidence = 0.65      # ignore weak predictions
-        self.closed_strict = 0.75       # stricter for CLOSED
+    @torch.no_grad()
+    def predict(self, eye_crop):
+        tensor = preprocess_eye(eye_crop)
+        if tensor is None:
+            return None
 
+        tensor = tensor.to(self.device)
+        logits = self.model(tensor)
+        probs = torch.softmax(logits, dim=1)[0].detach().cpu().numpy()
 
-    # ============================================================
-    # Predict eye state
-    # ============================================================
-    def predict(self, eye_tensor):
-        """
-        Input:
-            eye_tensor: (1,3,224,224)
+        pred_idx = int(np.argmax(probs))
+        pred_label = self.idx_to_class.get(pred_idx, str(pred_idx))
 
-        Returns:
-            label:
-                0 → closed
-                1 → open
-                None → uncertain
-
-            confidence: float
-        """
-
-        if eye_tensor is None:
-            return None, 0.0
-
-        with torch.no_grad():
-
-            eye_tensor = eye_tensor.to(self.device).float()
-
-            # Forward pass
-            logits = self.model(eye_tensor)
-
-            probs = F.softmax(logits, dim=1)
-
-            confidence, label = torch.max(probs, dim=1)
-
-            confidence = confidence.item()
-            label = label.item()
-
-        # -------------------------------
-        # Confidence filtering
-        # -------------------------------
-
-        # Ignore weak predictions
-        if confidence < self.min_confidence:
-            return None, confidence
-
-        # Be stricter for CLOSED (reduces false alarms)
-        if label == 0 and confidence < self.closed_strict:
-            return None, confidence
-
-        return label, confidence
+        return {
+            "pred_idx": pred_idx,
+            "pred_label": pred_label,
+            "confidence": float(probs[pred_idx]),
+            "closed_prob": float(probs[self.closed_index]),
+            "open_prob": float(probs[self.open_index]),
+            "probs": probs.tolist(),
+        }

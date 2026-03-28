@@ -1,33 +1,25 @@
-import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models import EfficientNet_B0_Weights
 
 
-class EyeStateCNN(nn.Module):
+class EyeStateEfficientNet(nn.Module):
     """
-    MobileNetV2 based eye-state classifier.
-
-    Input:  (B, 3, 224, 224)
-    Output: (B, 2) logits
+    Binary classifier:
+    0 -> closed
+    1 -> open
     """
 
-    def __init__(self, freeze_backbone=True):
-        super(EyeStateCNN, self).__init__()
+    def __init__(self, num_classes: int = 2, pretrained: bool = True, dropout: float = 0.3):
+        super().__init__()
 
-        # Load pretrained MobileNetV2
-        self.backbone = models.mobilenet_v2(weights="IMAGENET1K_V1")
+        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
+        self.backbone = models.efficientnet_b0(weights=weights)
 
-        # Freeze early layers
-        if freeze_backbone:
-            for param in self.backbone.features[:-4].parameters():
-                param.requires_grad = False
-
-        # Replace classifier (MATCHES TRAINED MODEL)
         in_features = self.backbone.classifier[1].in_features
-
         self.backbone.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(in_features, 2)
+            nn.Dropout(p=dropout),
+            nn.Linear(in_features, num_classes),
         )
 
     def forward(self, x):

@@ -1,37 +1,51 @@
 import cv2
-import torch
-import numpy as np
+from PIL import Image
+from torchvision import transforms
+
+IMAGE_SIZE = 224
+
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def preprocess_eye(eye_img, size=224):
+# =========================
+# TRAINING TRANSFORMS
+# =========================
+def get_train_transforms():
+    return transforms.Compose([
+        transforms.Grayscale(num_output_channels=3),
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(10),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+    ])
+
+
+def get_eval_transforms():
+    return transforms.Compose([
+        transforms.Grayscale(num_output_channels=3),
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+    ])
+
+
+# =========================
+# RUNTIME PREPROCESSING
+# =========================
+def preprocess_eye(eye_crop):
     """
-    Input:
-        eye_img : BGR eye image (NumPy array)
-    Output:
-        torch tensor of shape (1, 3, 224, 224)
+    Converts OpenCV BGR eye crop into model-ready tensor
+    for real-time inference.
     """
+    if eye_crop is None or eye_crop.size == 0:
+        return None
 
-    # 1. Convert BGR → RGB
-    rgb = cv2.cvtColor(eye_img, cv2.COLOR_BGR2RGB)
+    gray = cv2.cvtColor(eye_crop, cv2.COLOR_BGR2GRAY)
+    pil_img = Image.fromarray(gray)
 
-    # 2. Resize to MobileNet input size
-    resized = cv2.resize(rgb, (size, size))
-
-    # 3. Normalize to [0, 1]
-    normalized = resized.astype(np.float32) / 255.0
-
-    # 4. Convert to torch tensor (H, W, C) → (C, H, W)
-    tensor = torch.from_numpy(normalized).permute(2, 0, 1)
-
-    # 5. ImageNet normalization
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-    tensor = (tensor - mean) / std
-
-    # 6. Add batch dimension → (1, 3, 224, 224)
-    tensor = tensor.unsqueeze(0)
+    transform = get_eval_transforms()
+    tensor = transform(pil_img).unsqueeze(0)
 
     return tensor
-
-
-#converted into rgb model

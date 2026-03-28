@@ -1,52 +1,58 @@
-# src/alarm.py
-# This module handles audio alerts when drowsiness is detected.
-# It is intentionally kept independent of ML and vision logic.
-
-import pygame
 import os
+import threading
+import time
+
+try:
+    import pygame
+except Exception:
+    pygame = None
 
 
 class Alarm:
-    """
-    Alarm class responsible for playing and stopping
-    a warning sound when the driver is drowsy.
-    """
+    def __init__(self, sound_path: str = "assets/alarm.wav"):
+        self.sound_path = sound_path
+        self.active = False
+        self._use_pygame = False
 
-    def __init__(self, sound_path):
-        """
-        Initialize the alarm system.
-
-        Args:
-            sound_path (str): Path to the alarm .wav file
-        """
-
-        # Initialize pygame's audio mixer once
-        pygame.mixer.init()
-
-        # Validate that the alarm sound file exists
-        if not os.path.exists(sound_path):
-            raise FileNotFoundError(f"Alarm sound not found: {sound_path}")
-
-        # Load the alarm sound into memory
-        self.sound = pygame.mixer.Sound(sound_path)
-
-        # Track whether the alarm is currently playing
-        self.is_playing = False
+        if pygame is not None and os.path.exists(self.sound_path):
+            try:
+                pygame.mixer.init()
+                self._use_pygame = True
+            except Exception:
+                self._use_pygame = False
 
     def start(self):
-        """
-        Start playing the alarm sound.
-        This will loop continuously until stopped.
-        """
-        if not self.is_playing:
-            # Play sound in infinite loop (-1)
-            self.sound.play(-1)
-            self.is_playing = True
+        if self.active:
+            return
+
+        self.active = True
+
+        if self._use_pygame:
+            try:
+                pygame.mixer.music.load(self.sound_path)
+                pygame.mixer.music.play(-1)
+                return
+            except Exception:
+                self._use_pygame = False
+
+        # Fallback beep in a background thread
+        threading.Thread(target=self._beep_loop, daemon=True).start()
+
+    def _beep_loop(self):
+        try:
+            import winsound
+            for _ in range(6):
+                if not self.active:
+                    break
+                winsound.Beep(1200, 180)
+                time.sleep(0.10)
+        except Exception:
+            print("\a", end="", flush=True)
 
     def stop(self):
-        """
-        Stop the alarm sound if it is currently playing.
-        """
-        if self.is_playing:
-            self.sound.stop()
-            self.is_playing = False
+        self.active = False
+        if self._use_pygame:
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
