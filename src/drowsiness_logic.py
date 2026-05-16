@@ -14,7 +14,7 @@ class DrowsinessLogic:
         self,
         closed_on_threshold: float = 0.65,
         open_off_threshold: float = 0.40,
-        frame_threshold: int = 15,
+        frame_threshold: int = 30,
         window_size: int = 8,
         ear_threshold: float = 0.23,
         ear_weight: float = 0.10,
